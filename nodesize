@@ -44,7 +44,7 @@ NOTE:
       package-import-method=copy, they use real disk space.
 
 HOMEPAGE:
-    https://github.com/yourusername/nodesize
+    https://github.com/skorphil/nodesize
 HELP
             exit 0
             ;;
