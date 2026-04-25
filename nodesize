@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+
+SEARCH_DEPTH=3
+SCAN_DIR="."
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            cat << "HELP"
+╔═══════════════════════════════════════════════╗
+║   📦 Node Modules Disk Usage Analyzer         ║
+╚═══════════════════════════════════════════════╝
+
+USAGE:
+    nodesize [OPTIONS] [PATH]
+
+ARGUMENTS:
+    PATH    Directory to scan (default: current directory)
+
+OPTIONS:
+    -h, --help           Show this help message
+    -d, --depth N        Maximum search depth (default: 3)
+    -u, --unlimited      Search unlimited depth (slow!)
+
+EXAMPLES:
+    nodesize                       # Scan current directory
+    nodesize ~/github              # Scan specific directory
+    nodesize -d 5 ~/projects       # Deeper scan (5 levels)
+    nodesize --unlimited ~/work    # Full recursive scan
+
+OUTPUT:
+    ✅ FREE  - Uses shared storage (pnpm clones, Yarn global cache)
+    ⚠️  REAL  - Uses actual disk space (npm, Yarn local cache)
+
+SUPPORTED PACKAGE MANAGERS:
+    • npm (always real disk usage)
+    • pnpm (APFS clones/hardlinks - free)*
+    • Yarn Classic (real disk usage)
+    • Yarn Berry PnP (global cache - free, local cache - real)
+
+NOTE:
+    * pnpm projects are marked FREE assuming default settings
+      (package-import-method=auto). If you've configured
+      package-import-method=copy, they use real disk space.
+
+HOMEPAGE:
+    https://github.com/yourusername/nodesize
+HELP
+            exit 0
+            ;;
+        -d|--depth)
+            SEARCH_DEPTH="$2"
+            shift 2
+            ;;
+        -u|--unlimited)
+            SEARCH_DEPTH=""
+            shift
+            ;;
+        *)
+            SCAN_DIR="$1"
+            shift
+            ;;
+    esac
+done
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+GRAY='\033[0;90m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+echo -e "${CYAN}${BOLD}"
+cat << "BANNER"
+╔═══════════════════════════════════════════════╗
+║   📦 Node Modules Disk Usage Analyzer         ║
+╚═══════════════════════════════════════════════╝
+BANNER
+echo -e "${NC}"
+
+if [ -z "$SEARCH_DEPTH" ]; then
+    echo -e "${YELLOW}⚠️  Unlimited depth - may be slow!${NC}"
+    DEPTH_FLAG=""
+else
+    DEPTH_FLAG="-maxdepth $SEARCH_DEPTH"
+fi
+
+echo -e "${GRAY}Scanning: ${SCAN_DIR} (depth: ${SEARCH_DEPTH:-unlimited})${NC}\n"
+
+temp_file=$(mktemp)
+project_count=0
+
+find "$SCAN_DIR" $DEPTH_FLAG \( -name "node_modules" -o -name ".pnp.cjs" \) -prune 2>/dev/null | \
+  sed 's|/node_modules$||; s|/.pnp.cjs$||' | sort -u | while read project; do
+
+    ((project_count++))
+    printf "\r${YELLOW}⏳ Analyzing... %d${NC}" "$project_count" >&2
+
+    if [ -d "$project/node_modules/.pnpm" ]; then
+        size=$(du -sh "$project/node_modules" 2>/dev/null | cut -f1)
+        echo -e "$size\tFREE\tpnpm\t$project"
+    elif [ -f "$project/.pnp.cjs" ]; then
+        global_cache=$(grep -i "enableGlobalCache" "$project/.yarnrc.yml" 2>/dev/null | awk '{print $2}')
+        size=$(du -sh "$project/.yarn/cache" 2>/dev/null | cut -f1)
+        if [ "$global_cache" = "false" ]; then
+            echo -e "${size:-0}\tREAL\tYarn PnP\t$project"
+        else
+            echo -e "${size:-0}\tFREE\tYarn PnP\t$project"
+        fi
+    elif [ -d "$project/node_modules" ]; then
+        size=$(du -sh "$project/node_modules" 2>/dev/null | cut -f1)
+        echo -e "$size\tREAL\tnpm\t$project"
+    fi
+done > "$temp_file"
+
+printf "\r${GREEN}✓ Scan complete!${NC}                 \n\n"
+
+echo -e "${BOLD}┌──────────┬──────────┬──────────────┬────────────────────────────────────────┐${NC}"
+echo -e "${BOLD}│   Size   │  Status  │   Manager    │                Project                 │${NC}"
+echo -e "${BOLD}├──────────┼──────────┼──────────────┼────────────────────────────────────────┤${NC}"
+
+sort -t$'\t' -k1 -hr "$temp_file" | while IFS=$'\t' read size status manager project; do
+    if [ "$status" = "FREE" ]; then
+        status_colored="${GREEN}✅ FREE${NC}"
+    else
+        status_colored="${RED}⚠️  REAL${NC}"
+    fi
+    project_name=$(basename "$project")
+    printf "│ ${CYAN}%-8s${NC} │ %-18b │ ${YELLOW}%-12s${NC} │ %-38s │\n" \
+        "$size" "$status_colored" "$manager" "$project_name"
+done
+
+echo -e "${BOLD}└──────────┴──────────┴──────────────┴────────────────────────────────────────┘${NC}\n"
+
+real_count=$(grep -c "REAL" "$temp_file" 2>/dev/null || echo 0)
+free_count=$(grep -c "FREE" "$temp_file" 2>/dev/null || echo 0)
+
+echo -e "${YELLOW}📊 Summary:${NC} ${RED}${real_count} real${NC} · ${GREEN}${free_count} shared${NC}\n"
+
+echo -e "${GRAY}Note: pnpm projects marked FREE assume default clone/hardlink mode.${NC}"
+echo -e "${GRAY}      If package-import-method=copy is set, they use real disk space.${NC}\n"
+
+rm "$temp_file"
