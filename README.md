@@ -4,6 +4,8 @@ A fast CLI tool to analyze node_modules disk usage across different package mana
 
 Instantly see which projects use **real disk space** vs **shared storage** (pnpm APFS clones, Yarn global cache).
 
+![interface](assets/ui.png)
+
 ## Why?
 
 On macOS with APFS, `du` reports misleading sizes for pnpm's cloned node_modules (shows 1.1GB when actual disk usage is ~0GB). This tool shows you the **actual** disk usage so you can focus on real space hogs.
