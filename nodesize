@@ -122,7 +122,7 @@ echo -e "${BOLD}├──────────┼─────────�
 
 sort -t$'\t' -k1 -hr "$temp_file" | while IFS=$'\t' read size status manager project; do
     if [ "$status" = "FREE" ]; then
-        status_colored="${GREEN}✅ FREE${NC}"
+        status_colored="${GREEN}✅  FREE${NC}"
     else
         status_colored="${RED}⚠️  REAL${NC}"
     fi
